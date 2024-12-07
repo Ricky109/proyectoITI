@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Servidor: 127.0.0.1
--- Tiempo de generación: 07-12-2024 a las 01:12:48
+-- Tiempo de generación: 07-12-2024 a las 03:50:11
 -- Versión del servidor: 10.4.32-MariaDB-log
 -- Versión de PHP: 8.0.30
 
@@ -25,38 +25,23 @@ DELIMITER $$
 --
 -- Procedimientos
 --
-CREATE DEFINER=`root`@`localhost` PROCEDURE `insertar_justificacion` (IN `p_dniAdministrador` CHAR(8), IN `p_dniTrabajador` CHAR(8), IN `p_fecha` DATE, IN `p_motivo` TEXT)   BEGIN
-    INSERT INTO Justificacion (dniAdministrador, dniTrabajador, fecha, motivo)
-    VALUES (p_dniAdministrador, p_dniTrabajador, p_fecha, p_motivo);
-END$$
-
-CREATE DEFINER=`root`@`localhost` PROCEDURE `insertar_reporte` (IN `dniAdministrador` CHAR(8), IN `dniSupervisor` CHAR(8), IN `contratista` VARCHAR(100), IN `turno` CHAR(1), IN `horaLaboral` TIME, IN `clima` VARCHAR(50), IN `actividades` TEXT, IN `revisadoPorJefe` VARCHAR(100), IN `revisadoPorSuperVC` VARCHAR(100), IN `revisadoPorSupervisor` VARCHAR(100), IN `comentariosSupervisor` TEXT, IN `fecha` DATE)   BEGIN
-    INSERT INTO ReporteDiario (
-        dniAdministrador, dniSupervisor, contratista, turno, horaLaboral,
-        clima, actividades, revisadoPorJefe, revisadoPorSuperVC, revisadoPorSupervisor,
-        comentariosSupervisor, fecha
-    ) 
-    VALUES (
-        dniAdministrador, dniSupervisor, contratista, turno, horaLaboral,
-        clima, actividades, revisadoPorJefe, revisadoPorSuperVC, revisadoPorSupervisor,
-        comentariosSupervisor, fecha
-    );
-END$$
-
-CREATE DEFINER=`root`@`localhost` PROCEDURE `obtener_detalles_reporte_diario` (IN `p_idReporteDiario` INT)   BEGIN
-    SELECT *
-    FROM DetalleReporteDiario
-    WHERE idReporteDiario = p_idReporteDiario;
-END$$
-
-CREATE DEFINER=`root`@`localhost` PROCEDURE `obtener_reportes` (IN `fecha_param` DATE)   BEGIN
-    IF fecha_param IS NOT NULL THEN
-        SELECT idReporteDiario, fecha, contratista 
-        FROM ReporteDiario
-        WHERE fecha = fecha_param;
+CREATE DEFINER=`root`@`localhost` PROCEDURE `insertar_equivalente_en_horas` (IN `p_dni` CHAR(8), IN `p_fecha` DATE, IN `p_horas` DECIMAL(4,2))   BEGIN
+    -- Validar si el valor está fuera de los rangos permitidos
+    IF p_horas <= 0 OR p_horas > 8 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Valor fuera de los rangos permitidos (0-8)';
     ELSE
-        SELECT idReporteDiario, fecha, contratista 
-        FROM ReporteDiario;
+        -- Decidir en qué columna insertar según el rango
+        IF p_horas > 0 AND p_horas <= 3 THEN
+            INSERT INTO equivalenteenhoras (dni, fecha, horasAl25, horasAl35, horasAl100)
+            VALUES (p_dni, p_fecha, p_horas, NULL, NULL);
+        ELSEIF p_horas > 3 AND p_horas <= 6 THEN
+            INSERT INTO equivalenteenhoras (dni, fecha, horasAl25, horasAl35, horasAl100)
+            VALUES (p_dni, p_fecha, NULL, p_horas, NULL);
+        ELSEIF p_horas > 6 AND p_horas <= 8 THEN
+            INSERT INTO equivalenteenhoras (dni, fecha, horasAl25, horasAl35, horasAl100)
+            VALUES (p_dni, p_fecha, NULL, NULL, p_horas);
+        END IF;
     END IF;
 END$$
 
@@ -287,6 +272,23 @@ INSERT INTO `equivalenteenhoras` (`dni`, `fecha`, `horasAl25`, `horasAl35`, `hor
 ('75567026', '2024-07-15', NULL, NULL, 8.00),
 ('80248409', '2024-06-15', 2.00, NULL, NULL),
 ('95199731', '2024-07-15', NULL, 4.00, NULL);
+
+--
+-- Disparadores `equivalenteenhoras`
+--
+DELIMITER $$
+CREATE TRIGGER `verificar_dni_equivalenteHorasExtra` BEFORE INSERT ON `equivalenteenhoras` FOR EACH ROW BEGIN
+    -- Verificar si el dni existe en la tabla Trabajador o en la tabla Funcionario
+    IF NOT EXISTS (SELECT 1 FROM Trabajador WHERE dniTrabajador = NEW.dni) AND
+       NOT EXISTS (SELECT 1 FROM funcionario WHERE dniFuncionario = NEW.dni) THEN
+       
+        -- Si no existe, se lanza un error y no se permite la inserción
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'El DNI no pertenece a un trabajador registrado en la empresa.';
+    END IF;
+END
+$$
+DELIMITER ;
 
 -- --------------------------------------------------------
 
